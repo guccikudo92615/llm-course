@@ -4,11 +4,15 @@
 import os
 from openai import AsyncOpenAI  # importing openai for API usage
 import chainlit as cl  # importing chainlit for our app
-from chainlit.prompt import Prompt, PromptMessage  # importing prompt tools
-from chainlit.playground.providers import ChatOpenAI  # importing ChatOpenAI tools
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Get API key from environment
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY not found in environment variables")
+print("API Key found:", api_key[:8] + "..." + api_key[-4:])  # Only print first 8 and last 4 chars for security
 
 # ChatOpenAI Templates
 system_template = """You are a helpful assistant who always speaks in a pleasant tone!
@@ -37,44 +41,22 @@ async def start_chat():
 async def main(message: cl.Message):
     settings = cl.user_session.get("settings")
 
-    client = AsyncOpenAI()
+    client = AsyncOpenAI(api_key=api_key)
 
-    print(message.content)
-
-    prompt = Prompt(
-        provider=ChatOpenAI.id,
-        messages=[
-            PromptMessage(
-                role="system",
-                template=system_template,
-                formatted=system_template,
-            ),
-            PromptMessage(
-                role="user",
-                template=user_template,
-                formatted=user_template.format(input=message.content),
-            ),
-        ],
-        inputs={"input": message.content},
-        settings=settings,
-    )
-
-    print([m.to_openai() for m in prompt.messages])
+    messages = [
+        {"role": "system", "content": system_template},
+        {"role": "user", "content": user_template.format(input=message.content)}
+    ]
 
     msg = cl.Message(content="")
 
     # Call OpenAI
     async for stream_resp in await client.chat.completions.create(
-        messages=[m.to_openai() for m in prompt.messages], stream=True, **settings
+        messages=messages, stream=True, **settings
     ):
         token = stream_resp.choices[0].delta.content
-        if not token:
-            token = ""
+        if token is None:
+            continue
         await msg.stream_token(token)
 
-    # Update the prompt object with the completion
-    prompt.completion = msg.content
-    msg.prompt = prompt
-
-    # Send and close the message stream
     await msg.send()
